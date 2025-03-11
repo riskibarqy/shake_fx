@@ -30,7 +30,12 @@ Future<void> initializeService() async {
   service.startService();
 }
 
-void onStart(ServiceInstance service) {
+@pragma('vm:entry-point')
+void onStart(ServiceInstance service) async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final prefs = await SharedPreferences.getInstance();
+  bool isShakeEnabled = true;
+
   if (service is AndroidServiceInstance) {
     service.setForegroundNotificationInfo(
       title: "ShakeFX",
@@ -38,13 +43,20 @@ void onStart(ServiceInstance service) {
     );
   }
 
-  final audioService = AudioService();
-  final shakeDetector = ShakeDetector(
-    onShake: () => audioService.playSound(),
-    shakeThreshold: 15.0,
-  );
+  // ✅ Handle service stop request
+  service.on("stopService").listen((event) {
+    service.stopSelf();
+  });
 
-  shakeDetector.start();
+  if (isShakeEnabled) {
+    final audioService = AudioService();
+    final shakeDetector = ShakeDetector(
+      onShake: () => audioService.playSound(),
+      shakeThreshold: 50.0,
+    );
+
+    shakeDetector.start();
+  }
 }
 
 bool onIosBackground(ServiceInstance service) {
@@ -70,7 +82,8 @@ class _MyAppState extends State<MyApp> {
 
   void _toggleTheme() async {
     setState(() {
-      _themeMode = _themeMode == ThemeMode.dark ? ThemeMode.light : ThemeMode.dark;
+      _themeMode =
+          _themeMode == ThemeMode.dark ? ThemeMode.light : ThemeMode.dark;
     });
     await ThemePreference.setTheme(_themeMode);
   }
@@ -113,16 +126,26 @@ class _ShakeScreenState extends State<ShakeScreen> {
     {'name': 'Whip', 'path': 'sounds/whip.mp3'},
   ];
 
-  void _toggleShakeDetection() {
+  void _toggleShakeDetection() async {
+    final prefs = await SharedPreferences.getInstance();
+    final service = FlutterBackgroundService();
+
     if (_isRunning) {
       _shakeDetector?.stop();
+      await prefs.setBool("shake_enabled", false);
+      service.invoke("stopService"); // Stop background service
     } else {
+      await prefs.setBool("shake_enabled", true);
+      await service.startService(); // Restart background service
+
+      // ✅ Reinitialize ShakeDetector in UI
       _shakeDetector = ShakeDetector(
         onShake: () => _audioService.playSound(),
         shakeThreshold: _sensitivity,
       );
       _shakeDetector?.start();
     }
+
     setState(() {
       _isRunning = !_isRunning;
     });
@@ -145,7 +168,10 @@ class _ShakeScreenState extends State<ShakeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text("ShakeFX", style: TextStyle(fontWeight: FontWeight.bold)),
+        title: const Text(
+          "ShakeFX",
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
         centerTitle: true,
         actions: [
           IconButton(
@@ -160,15 +186,25 @@ class _ShakeScreenState extends State<ShakeScreen> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Card(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
               elevation: 4,
               child: Padding(
                 padding: const EdgeInsets.all(20.0),
                 child: Column(
                   children: [
-                    const Text("Shake Detection", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                    const Text(
+                      "Shake Detection",
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                     SwitchListTile(
-                      title: Text(_isRunning ? "Running in background" : "Stopped"),
+                      title: Text(
+                        _isRunning ? "Running in background" : "Stopped",
+                      ),
                       value: _isRunning,
                       onChanged: (bool value) => _toggleShakeDetection(),
                       activeColor: Colors.green,
@@ -179,13 +215,21 @@ class _ShakeScreenState extends State<ShakeScreen> {
             ),
             const SizedBox(height: 20),
             Card(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
               elevation: 4,
               child: Padding(
                 padding: const EdgeInsets.all(20.0),
                 child: Column(
                   children: [
-                    const Text("Select Sound", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                    const Text(
+                      "Select Sound",
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                     const SizedBox(height: 10),
                     DropdownButton<String>(
                       value: _selectedSound,
@@ -193,12 +237,13 @@ class _ShakeScreenState extends State<ShakeScreen> {
                       onChanged: (String? newSound) {
                         if (newSound != null) _changeSound(newSound);
                       },
-                      items: _sounds.map<DropdownMenuItem<String>>((sound) {
-                        return DropdownMenuItem<String>(
-                          value: sound['path'],
-                          child: Text(sound['name']!),
-                        );
-                      }).toList(),
+                      items:
+                          _sounds.map<DropdownMenuItem<String>>((sound) {
+                            return DropdownMenuItem<String>(
+                              value: sound['path'],
+                              child: Text(sound['name']!),
+                            );
+                          }).toList(),
                     ),
                   ],
                 ),
@@ -206,14 +251,22 @@ class _ShakeScreenState extends State<ShakeScreen> {
             ),
             const SizedBox(height: 20),
             Card(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
               elevation: 4,
               child: Padding(
                 padding: const EdgeInsets.all(20.0),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text("Shake Sensitivity", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                    const Text(
+                      "Shake Sensitivity",
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                     Slider(
                       value: _sensitivity,
                       min: 5,
