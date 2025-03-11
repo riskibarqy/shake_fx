@@ -2,12 +2,53 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shake_fx/features/shake_detector/shake_detector.dart';
 import 'package:shake_fx/core/audio_service.dart';
-
+import 'package:flutter_background_service/flutter_background_service.dart';
+import 'package:flutter_background_service_android/flutter_background_service_android.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await initializeService();
   final ThemeMode themeMode = await ThemePreference.getTheme();
   runApp(MyApp(initialThemeMode: themeMode));
+}
+
+Future<void> initializeService() async {
+  final service = FlutterBackgroundService();
+
+  await service.configure(
+    androidConfiguration: AndroidConfiguration(
+      onStart: onStart,
+      autoStart: true,
+      isForegroundMode: true,
+    ),
+    iosConfiguration: IosConfiguration(
+      onForeground: onStart,
+      onBackground: onIosBackground,
+    ),
+  );
+
+  service.startService();
+}
+
+void onStart(ServiceInstance service) {
+  if (service is AndroidServiceInstance) {
+    service.setForegroundNotificationInfo(
+      title: "ShakeFX",
+      content: "Shake detection running...",
+    );
+  }
+
+  final audioService = AudioService();
+  final shakeDetector = ShakeDetector(
+    onShake: () => audioService.playSound(),
+    shakeThreshold: 15.0,
+  );
+
+  shakeDetector.start();
+}
+
+bool onIosBackground(ServiceInstance service) {
+  return true;
 }
 
 class MyApp extends StatefulWidget {
@@ -192,7 +233,6 @@ class _ShakeScreenState extends State<ShakeScreen> {
   }
 }
 
-/// Theme Preferences (Save theme settings)
 class ThemePreference {
   static const String _key = "themeMode";
 
